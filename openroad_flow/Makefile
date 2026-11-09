@@ -19,6 +19,12 @@
 #   make variants                         # one run per choice, then make metrics
 #   make PINS=auto floorplan_images       # fp_floorplan.png, fp_place.png in reports/
 #
+# Clock tree variants (registered_adder; CTS=buf1 buf2 dist nodummy):
+#   make CTS=buf2                         # one run
+#   make CTS=buf2 clock_report            # clock tree numbers into reports/ and metrics
+#   make cts_variants                     # base + every CTS choice, reports, metrics
+#   make DESIGN=aes cts_variants          # aes: CTS=small large noclust (sink clustering)
+#
 # Designs under ./designs/<platform>/<design>/ win over ORFS's own. Results, logs and
 # reports go to ./results, ./logs, ./reports and ./objects in this directory
 # (WORK_HOME). The ORFS flow itself (scripts, platforms) is not copied here; it is
@@ -55,9 +61,17 @@ ORFS_MAKE = $(MAKE) --no-print-directory -f $(ORFS_FLOW)/Makefile \
 #   make variants VARIANTS="FP=wide,PINS=auto PDN=ring"
 VARIANTS ?= FP=small FP=large FP=wide FP=util PDN=dense PDN=sparse PDN=ring \
             PINS=auto PINS=random PINS=dataflow PINS=oneside
+# What `make variants` builds for each entry
+VARIANT_TARGETS ?= all floorplan_images
+# Clock tree variants, each followed by clock_report instead of floorplan_images
+ifeq ($(DESIGN),aes)
+CTS_VARIANTS ?= CTS=base CTS=small CTS=large CTS=noclust
+else
+CTS_VARIANTS ?= CTS=base CTS=buf1 CTS=buf2 CTS=dist CTS=nodummy
+endif
 
 .DEFAULT_GOAL := all
-.PHONY: all list help both ladder metrics variants floorplan_images
+.PHONY: all list help both ladder metrics variants floorplan_images cts_variants clock_report
 
 all:
 	@test -f "$(DESIGN_CONFIG)" || { echo "No config.mk for DESIGN=$(DESIGN) PLATFORM=$(PLATFORM) ($(DESIGN_CONFIG)). Try: make list"; exit 1; }
@@ -89,7 +103,7 @@ ladder:
 variants:
 	@failed=""; for v in $(VARIANTS); do \
 	    echo "=== $(DESIGN) $$v ==="; \
-	    $(MAKE) --no-print-directory $$(echo $$v | tr , ' ') all floorplan_images || failed="$$failed $$v"; \
+	    $(MAKE) --no-print-directory $$(echo $$v | tr , ' ') $(VARIANT_TARGETS) || failed="$$failed $$v"; \
 	done; \
 	$(MAKE) --no-print-directory metrics; \
 	if [ -n "$$failed" ]; then echo "FAILED:$$failed"; exit 1; fi
@@ -101,11 +115,19 @@ floorplan_images:
 	        RUN_SCRIPT=$(CURDIR)/../scripts/save_floorplan_images.tcl; \
 	done
 
+cts_variants:
+	@$(MAKE) --no-print-directory variants VARIANTS="$(CTS_VARIANTS)" VARIANT_TARGETS="all clock_report"
+
+# Clock tree summary of a finished run: reports/.../clock_report.txt and
+# logs/.../clock_report.json (read by make metrics)
+clock_report:
+	$(ORFS_MAKE) run RUN_LOG_NAME_STEM=clock_report RUN_SCRIPT=$(CURDIR)/../scripts/clock_report.tcl
+
 metrics:
 	python3 $(CURDIR)/../scripts/orfs_metrics.py --work $(WORK_HOME) --out $(WORK_HOME)/metrics
 
 help:
-	@sed -n '3,25p' $(firstword $(MAKEFILE_LIST))
+	@sed -n '3,31p' $(firstword $(MAKEFILE_LIST))
 
 # Everything else is passed straight to ORFS.
 Makefile: ;

@@ -7,11 +7,13 @@ export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/constraint.
 # Adders degrade GCD
 export ADDER_MAP_FILE :=
 
-# Fixed die: 196 I/O pins need a ~270 um perimeter, and io_constraints.tcl places
-# pins up to 120 um along each edge. At the 2.0 ns clock, timing repair grows the
-# 64-bit adder to ~14,500 um^2 of cells, so the core is 190 x 190 um (~40%).
-export DIE_AREA  = 0 0 200 200
-export CORE_AREA = 5 5 195 195
+# Fixed die, sized for STAGES = 64, CHUNK = 1 in adder64_pipelined.v: the input
+# delay lines make it 6,370 flops, ~176,000 um^2 of cells after synthesis and
+# ~200,000 um^2 at the end, so the core is 640 x 640 um (~50%). io_constraints.tcl
+# places the 196 I/O pins up to 120 um along each edge, which fits any die.
+# (The 8-stage version, STAGES = 8 / CHUNK = 8, fits in 0 0 200 200.)
+export DIE_AREA  = 0 0 650 650
+export CORE_AREA = 5 5 645 645
 export TNS_END_PERCENT = 100
 export EQUIVALENCE_CHECK   ?=   0
 export REMOVE_CELLS_FOR_EQY = sky130_fd_sc_hd__tapvpwrvgnd*

@@ -18,6 +18,7 @@ export REMOVE_CELLS_FOR_EQY = sky130_fd_sc_hd__tapvpwrvgnd*
 #   make PDN=sparse                  power grid
 #   make PINS=dataflow               pin locations
 #   make FP=wide PINS=auto           any combination
+#   make CTS=small                   clock tree synthesis settings
 #
 # Each combination runs in its own directory, results/sky130hd/registered_adder/
 # <variant>/ (likewise logs/, reports/), so runs don't overwrite each other.
@@ -28,20 +29,24 @@ export REMOVE_CELLS_FOR_EQY = sky130_fd_sc_hd__tapvpwrvgnd*
 FP   ?= base
 PDN  ?= base
 PINS ?= base
+CTS  ?= base
 
 FP_CHOICES   := base small large wide util
 PDN_CHOICES  := base dense sparse ring
 PINS_CHOICES := base auto random dataflow oneside
+CTS_CHOICES  := base buf1 buf2 dist nodummy
 $(if $(filter $(FP),$(FP_CHOICES)),,$(error FP=$(FP): choose one of $(FP_CHOICES)))
 $(if $(filter $(PDN),$(PDN_CHOICES)),,$(error PDN=$(PDN): choose one of $(PDN_CHOICES)))
 $(if $(filter $(PINS),$(PINS_CHOICES)),,$(error PINS=$(PINS): choose one of $(PINS_CHOICES)))
+$(if $(filter $(CTS),$(CTS_CHOICES)),,$(error CTS=$(CTS): choose one of $(CTS_CHOICES)))
 
 # Variant name: the non-base choices, e.g. fp-small_pins-auto
 _empty :=
 _space := $(_empty) $(_empty)
 _variant := $(strip $(if $(filter-out base,$(FP)),fp-$(FP)) \
                     $(if $(filter-out base,$(PDN)),pdn-$(PDN)) \
-                    $(if $(filter-out base,$(PINS)),pins-$(PINS)))
+                    $(if $(filter-out base,$(PINS)),pins-$(PINS)) \
+                    $(if $(filter-out base,$(CTS)),cts-$(CTS)))
 export FLOW_VARIANT ?= $(if $(_variant),$(subst $(_space),_,$(_variant)),base)
 
 _variants = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/variants
@@ -94,4 +99,30 @@ else ifneq ($(PINS),auto)
   # auto: no constraints; the pin placer puts each pin next to the cells it
   # connects to (after a first global placement)
   export IO_CONSTRAINTS = $(_variants)/pins_$(PINS).tcl
+endif
+
+# --- d) Clock tree synthesis ------------------------------------------------
+# base: ORFS defaults, clock_tree_synthesis -sink_clustering_enable
+#       -repair_clock_nets. With 194 flops the H-tree splits the sinks four
+#       times, down to 16 regions of at most 15 flops, each with one leaf
+#       buffer: 17 clkbuf_16, 2 buffers from the clock pin to any flop, plus
+#       13 dummy loads that even out the leaf buffers' loads. That is too few
+#       flops for sink clustering to run, so CTS_CLUSTER_SIZE/DIAMETER have no
+#       effect on this design (try them on aes).
+# Placement is the same for every choice; only CTS and what follows changes.
+# `make clock_report` adds the tree's numbers to the run's reports and metrics.
+_cts_default := -sink_clustering_enable -repair_clock_nets
+ifeq ($(CTS),buf1)
+  # Only the weakest clkbuf_1: same tree, much slower edges, more skew
+  export CTS_BUF_LIST = sky130_fd_sc_hd__clkbuf_1
+else ifeq ($(CTS),buf2)
+  # Only clkbuf_2: between buf1 and base
+  export CTS_BUF_LIST = sky130_fd_sc_hd__clkbuf_2
+else ifeq ($(CTS),dist)
+  # A buffer at least every 40 um along the tree's wires: more buffers and
+  # levels, more latency
+  export CTS_BUF_DISTANCE = 40
+else ifeq ($(CTS),nodummy)
+  # No dummy loads, so the clusters' loads aren't evened out
+  export CTS_ARGS = $(_cts_default) -dont_use_dummy_load
 endif

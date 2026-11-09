@@ -47,6 +47,15 @@ KEYS = {
     "wirelength_um": ["detailedroute__route__wirelength", "globalroute__route__wirelength"],
     "drc_errors": ["detailedroute__route__drc_errors"],
     "synth_area_um2": ["synth__design__instance__area__stdcell", "synth__design__instance__area"],
+    "hold_buffers": ["cts__design__instance__count__hold_buffer"],
+    # From clock_report.json (make clock_report), so only for runs that have one
+    "clock_cells": ["clock__tree__cells"],
+    "clock_levels": ["clock__tree__levels"],
+    "clock_dummy_loads": ["clock__tree__dummy_loads"],
+    "clock_latency_ns": ["clock__latency__max"],
+    "clock_skew_ns": ["clock__skew__setup"],
+    "clock_wirelength_um": ["clock__wirelength"],
+    "clock_power_w": ["clock__power"],
 }
 # Fmax metric names carry the clock name, e.g. finish__timing__fmax__clock:core_clock
 FMAX_RE = re.compile(r"^finish__timing__fmax(__clock:.*)?$")
@@ -61,8 +70,13 @@ COLUMNS = [
     "design", "platform", "variant", "stage", "instance_count", "cell_area_um2",
     "core_area_um2", "die_area_um2", "utilization", "clock_period_ns", "setup_ws_ns",
     "setup_tns_ns", "hold_ws_ns", "fmax_mhz", "power_mw", "wirelength_um",
-    "drc_errors", "ir_drop_mv", "runtime_s", "peak_mem_mb",
+    "drc_errors", "ir_drop_mv", "runtime_s", "peak_mem_mb", "hold_buffers",
+    "clock_cells", "clock_levels", "clock_dummy_loads", "clock_latency_ns", "clock_skew_ns",
+    "clock_wirelength_um", "clock_power_mw", "clock_power_pct",
 ]
+CLOCK_COLUMNS = ["clock_cells", "clock_levels", "clock_dummy_loads", "clock_latency_ns",
+                 "clock_skew_ns", "clock_wirelength_um", "clock_power_mw", "clock_power_pct",
+                 "hold_buffers", "setup_ws_ns", "hold_ws_ns", "power_mw"]
 
 STAGES = ["1_synth", "2_floorplan", "3_place", "4_cts", "5_route", "6_finish"]
 
@@ -165,6 +179,13 @@ def collect(work):
         else:
             row["fmax_mhz"] = None
         row["power_mw"] = row.pop("power_w") * 1e3 if row.get("power_w") is not None else None
+        clk = row.pop("clock_power_w")
+        row["clock_power_mw"] = clk * 1e3 if clk is not None else None
+        row["clock_power_pct"] = (100 * row["clock_power_mw"] / row["power_mw"]
+                                  if clk is not None and row["power_mw"] else None)
+        for col in ("clock_latency_ns", "clock_skew_ns"):
+            if row[col] is not None:
+                row[col] *= unit
         row.pop("synth_area_um2", None)
         row["ir_drop_mv"] = ir_drop_mv(log_dir)
         row["runtime_s"], row["peak_mem_mb"] = runtime(log_dir)
@@ -177,7 +198,8 @@ def fmt(v, col):
         return ""
     if isinstance(v, str):
         return v
-    if col in ("instance_count", "drc_errors", "peak_mem_mb"):
+    if col in ("instance_count", "drc_errors", "peak_mem_mb", "hold_buffers", "clock_cells",
+               "clock_levels", "clock_dummy_loads"):
         return str(int(round(v)))
     if col == "utilization":
         return f"{v:.3g}"
@@ -222,6 +244,13 @@ def write_md(rows, path):
             lines.append("| {} | {} | {} | {} | {} |".format(
                 r["design"], *(f"{r[k]:.3g}x" if r[k] else "" for k in
                                ("cell_area", "power", "fmax", "wirelength"))))
+    clock_rows = [r for r in rows if r.get("clock_cells") is not None]
+    if clock_rows:
+        cols = ["design", "platform", "variant"] + CLOCK_COLUMNS
+        lines += ["", "**Clock tree** (runs with make clock_report)", "",
+                  "| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
+        for r in clock_rows:
+            lines.append("| " + " | ".join(fmt(r.get(c), c) for c in cols) + " |")
     open(path, "w").write("\n".join(lines) + "\n")
 
 
